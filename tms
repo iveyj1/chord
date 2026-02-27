@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Start a session and split vertically
+tmux new-session -d -s chord nvim
+tmux set-option remain-on-exit on
+tmux split-window -h -t chord:1 opencode
+tmux split-window -v -t chord:1
+# tmux send-keys -t chord:1.0 "nvim" Enter
+tmux attach -t chord
