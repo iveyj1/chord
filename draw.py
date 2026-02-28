@@ -306,3 +306,83 @@ def draw_start_screen(screen, font):
     
     help_text = font.render("Controls: SPACE=next, P=pause/auto, A-G=notes, 1-6=octave", True, GRAY)
     screen.blit(help_text, (50, 100))
+
+
+def draw_ear_training_overlay(screen, challenge, sub_mode,
+                              player_hits, player_misses,
+                              score_correct, score_total,
+                              difficulty, octave,
+                              show_answer=False,
+                              playing_midi=False):
+    """Draw ear training mode overlay.
+
+    Args:
+        screen: Pygame surface.
+        challenge: Current ear training challenge dict (or None).
+        sub_mode: "note", "interval", or "chord".
+        player_hits: Set of correctly matched notes.
+        player_misses: Set of incorrect notes.
+        score_correct: Running correct count.
+        score_total: Running total count.
+        difficulty: Current difficulty level.
+        octave: Current keyboard octave.
+        show_answer: If True, reveal the answer label and notes.
+        playing_midi: If True, MIDI playback is in progress.
+    """
+    info_font = _get_font(None, 32)
+    small_font = _get_font(None, 24)
+    big_font = _get_font(None, 48)
+    max_y = HEIGHT - 120
+    y = 20
+
+    # Mode header
+    mode_label = f"Ear Training: {sub_mode.capitalize()}"
+    text = big_font.render(mode_label, True, BLACK)
+    screen.blit(text, (20, y))
+    y += 55
+
+    # Score
+    if score_total > 0:
+        pct = int(100 * score_correct / score_total)
+        score_str = f"Score: {score_correct}/{score_total} ({pct}%)"
+    else:
+        score_str = "Score: 0/0"
+    text = info_font.render(score_str, True, BLACK)
+    screen.blit(text, (20, y))
+    y += 35
+
+    # Playing indicator
+    if playing_midi:
+        text = info_font.render("♪ Playing...", True, (0, 0, 180))
+        screen.blit(text, (20, y))
+        y += 35
+
+    # Hits
+    if player_hits and y < max_y:
+        text = info_font.render(f"Hits: {', '.join(sorted(player_hits))}", True, GREEN)
+        screen.blit(text, (20, y))
+        y += 35
+
+    # Misses
+    if player_misses and y < max_y:
+        text = info_font.render(f"Misses: {', '.join(sorted(player_misses))}", True, RED)
+        screen.blit(text, (20, y))
+        y += 35
+
+    # Answer reveal
+    if show_answer and challenge and y < max_y:
+        answer_text = f"Answer: {challenge['label']}  ({', '.join(challenge['notes'])})"
+        text = info_font.render(answer_text, True, (0, 100, 0))
+        screen.blit(text, (20, y))
+        y += 35
+
+    # Bottom status
+    diff_text = f"Difficulty: {difficulty} (CTRL+1-4)  |  Octave: {octave}"
+    text = info_font.render(diff_text, True, BLACK)
+    screen.blit(text, (20, HEIGHT - 105))
+
+    help_text = small_font.render(
+        "SPACE=replay  R=new  M=cycle mode  P=pause/auto  A-G=notes  1-6=octave  SHIFT=sharp  CTRL+1-4=diff",
+        True, GRAY,
+    )
+    screen.blit(help_text, (20, HEIGHT - 35))

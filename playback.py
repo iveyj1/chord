@@ -4,13 +4,19 @@ Piano Learning Game - Main Entry Point
 A game for learning to read music notation by playing notes on a MIDI keyboard
 or simulating with computer keyboard.
 
+Modes:
+    Default     - Read notation and play matching notes
+    --sequence  - 3-bar line progression
+    --ear       - Ear training: hear notes via MIDI, play them back
+
 Controls:
-    SPACE       - Advance to next chord
-    P           - Toggle pause/auto-advance mode  
-    R           - Reset to start of sequence
+    SPACE       - Advance / replay challenge (ear mode)
+    P           - Toggle pause/auto-advance mode
+    R           - Reset / new challenge
     A-G         - Simulate playing a note
     SHIFT+A-G   - Simulate playing a sharp note
     1-6         - Set octave for simulated notes
+    M           - Cycle ear training sub-mode (note/interval/chord)
     ESC         - Quit
 """
 
@@ -18,6 +24,7 @@ import pygame
 import mido
 import time
 import argparse
+import threading
 
 from constants import WIDTH, HEIGHT, WHITE, BLACK, FPS, TRY_MIDI, MIDI_PORT_NAME
 from music import note_to_mnote
@@ -28,10 +35,17 @@ from draw import (
     draw_chord,
     draw_info_overlay,
     draw_start_screen,
+    draw_ear_training_overlay,
     get_sequence_layout,
     draw_sequence_staff,
     draw_sequence_bars,
     draw_next_chord_indicator,
+)
+from ear_training import (
+    generate_challenge,
+    play_challenge,
+    open_midi_output,
+    close_midi_output,
 )
 
 # =============================================================================
@@ -57,6 +71,17 @@ current_difficulty = 1
 # CLI options
 show_start_reference_chords = False
 sequence_mode = False
+ear_mode = False
+
+# Ear training state
+ear_sub_mode = "note"       # "note", "interval", "chord"
+ear_challenge = None
+ear_player_hits = set()
+ear_player_misses = set()
+ear_show_answer = False
+ear_score_correct = 0
+ear_score_total = 0
+ear_playing_midi = False    # True while MIDI playback thread is active
 
 # Sequence mode settings/state
 SEQUENCE_BARS = 3
@@ -226,10 +251,20 @@ def handle_keydown(event):
         return "sequence_new_line"
     
     if key == pygame.K_r:
+        if ear_mode:
+            return "ear_new_challenge"
         if sequence_mode:
             return "sequence_repeat_line"
         reset_chord_sequence()
         return "show_chord"
+
+    # Ear training sub-mode cycling
+    if ear_mode and key == pygame.K_m:
+        global ear_sub_mode
+        idx = _EAR_SUB_MODES.index(ear_sub_mode)
+        ear_sub_mode = _EAR_SUB_MODES[(idx + 1) % len(_EAR_SUB_MODES)]
+        print(f"Ear sub-mode: {ear_sub_mode}")
+        return "ear_new_challenge"
     
 
     # Difficulty selection (number keys 1-6 with CTRL)
@@ -248,9 +283,40 @@ def handle_keydown(event):
     
     # State-specific handling
     if state == "start":
-        # Any other key starts the game
+        if ear_mode:
+            return "ear_new_challenge"
         return "show_chord"
     
+    if state == "ear_listen":
+        # Space replays the challenge
+        if key == pygame.K_SPACE:
+            if ear_challenge and not ear_playing_midi:
+                _play_challenge_async(ear_challenge)
+            return None
+
+        # Note simulation (same as wait_for_notes)
+        if key in KEY_TO_NOTE:
+            note_letter = KEY_TO_NOTE[key]
+            mods = pygame.key.get_mods()
+            if mods & pygame.KMOD_SHIFT:
+                note_letter += "#"
+            elif mods & pygame.KMOD_CTRL:
+                note_letter += "b"
+            simulated_note = f"{note_letter}{current_octave}"
+            if simulated_note in note_to_mnote:
+                pressed_keyboard_notes[key] = simulated_note
+                _mark_input_pressed()
+                _ear_process_note(simulated_note)
+                if _check_ear_complete():
+                    return "ear_answered"
+        return None
+
+    if state == "ear_answered":
+        # Any key advances to next challenge
+        if key == pygame.K_SPACE:
+            return "ear_new_challenge"
+        return None
+
     if state == "wait_for_notes":
         # Space advances
         if key == pygame.K_SPACE:
@@ -296,6 +362,77 @@ def handle_keyup(event):
         _mark_input_released_if_all()
 
 
+# =============================================================================
+# Ear Training Helpers
+# =============================================================================
+
+_EAR_SUB_MODES = ["note", "interval", "chord"]
+
+
+def _play_challenge_async(challenge: dict):
+    """Play challenge MIDI in a background thread so the game loop doesn't block."""
+    global ear_playing_midi
+
+    def _worker():
+        global ear_playing_midi
+        ear_playing_midi = True
+        try:
+            play_challenge(challenge)
+        finally:
+            ear_playing_midi = False
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+
+
+def _new_ear_challenge():
+    """Generate and play a new ear training challenge."""
+    global ear_challenge, ear_player_hits, ear_player_misses, ear_show_answer
+    global current_notes, current_clef
+
+    ear_challenge = generate_challenge(
+        mode=ear_sub_mode,
+        difficulty=current_difficulty,
+    )
+    ear_player_hits = set()
+    ear_player_misses = set()
+    ear_show_answer = False
+    current_notes = ear_challenge["notes"]
+    current_clef = ear_challenge["clef"]
+    _play_challenge_async(ear_challenge)
+
+
+def _check_ear_complete() -> bool:
+    """Check if ear training challenge is fully matched."""
+    if ear_challenge is None:
+        return False
+    target = set(ear_challenge["notes"])
+    return ear_player_hits.issuperset(target)
+
+
+def _ear_process_note(note: str):
+    """Score a note against the current ear challenge."""
+    global ear_player_hits, ear_player_misses, ear_score_correct, ear_score_total
+    global ear_show_answer
+
+    if ear_challenge is None or ear_show_answer:
+        return
+
+    ear_player_misses.clear()  # clear previous misses on new input
+
+    if note in ear_challenge["notes"]:
+        ear_player_hits.add(note)
+    else:
+        ear_player_misses.add(note)
+
+    if _check_ear_complete() and not ear_show_answer:
+        ear_show_answer = True
+        if not ear_player_misses:
+            ear_score_correct += 1
+            print(f"✓ Ear: {ear_challenge['label']}")
+        ear_score_total += 1
+
+
 def process_midi():
     """Process pending MIDI messages and return note_on MIDI numbers this frame."""
     global user_hit_set, user_miss_set
@@ -316,6 +453,12 @@ def process_midi():
             continue
 
         note_on_midi.append(msg.note)
+
+        # Ear training mode: route MIDI input to ear scoring
+        if ear_mode and state == "ear_listen":
+            note = get_note_from_midi(msg.note, current_notes)
+            _ear_process_note(note)
+            continue
 
         if state != "wait_for_notes":
             continue
@@ -377,6 +520,14 @@ def parse_args():
         action="store_true",
         help="show 3 bars x 4 chords line and progress through the full line",
     )
+    parser.add_argument(
+        "--ear",
+        nargs="?",
+        const="note",
+        choices=["note", "interval", "chord"],
+        default=None,
+        help="ear training mode: hear notes via MIDI, play them back (sub-modes: note, interval, chord)",
+    )
     return parser.parse_args()
 
 # =============================================================================
@@ -385,13 +536,18 @@ def parse_args():
 
 def main():
     global state, current_chord, current_clef, current_notes
-    global show_start_reference_chords, sequence_mode
+    global show_start_reference_chords, sequence_mode, ear_mode, ear_sub_mode
     global user_hit_set, user_miss_set, time_of_chord_display
     global pending_advance_action
 
     args = parse_args()
     show_start_reference_chords = args.show_start_reference_chords
     sequence_mode = args.sequence
+    if args.ear is not None:
+        ear_mode = True
+        ear_sub_mode = args.ear
+        sequence_mode = False  # ear and sequence are mutually exclusive
+        open_midi_output()
     
     running = True
     
@@ -405,6 +561,10 @@ def main():
                 new_state = handle_keydown(event)
                 if new_state == "quit":
                     running = False
+                elif new_state == "ear_new_challenge":
+                    state = "ear_new_challenge"
+                elif new_state == "ear_answered":
+                    state = "ear_answered"
                 elif new_state == "queue_sequence_advance":
                     if sequence_mode and state == "wait_for_notes" and not is_sequence_line_complete():
                         _queue_advance("sequence_advance")
@@ -431,7 +591,7 @@ def main():
         
         # --- Clear Screen ---
         screen.fill(WHITE)
-        if staff_img and not sequence_mode:
+        if staff_img and not sequence_mode and not ear_mode:
             screen.blit(staff_img, (0, 0))
         
         # --- State Machine ---
@@ -440,6 +600,71 @@ def main():
             if show_start_reference_chords:
                 draw_chord(screen, ["C2", "C3", "C4"], "half", "F")
                 draw_chord(screen, ["C4", "C5", "C6"], "half", "G")
+
+        elif state == "ear_new_challenge":
+            _new_ear_challenge()
+            state = "ear_listen"
+
+        elif state == "ear_listen":
+            process_midi()
+            if _check_ear_complete():
+                state = "ear_answered"
+
+            # Draw staff background
+            if staff_img:
+                screen.blit(staff_img, (0, 0))
+
+            # Draw player's note attempts (hits green, misses red)
+            clef = ear_challenge["clef"] if ear_challenge else "G"
+            draw_chord(screen, ear_player_hits, "whole", clef)
+            draw_chord(
+                screen,
+                _display_notes_without_accidentals(ear_player_misses),
+                "x", clef,
+            )
+
+            draw_ear_training_overlay(
+                screen, ear_challenge, ear_sub_mode,
+                ear_player_hits, ear_player_misses,
+                ear_score_correct, ear_score_total,
+                current_difficulty, current_octave,
+                show_answer=False,
+                playing_midi=ear_playing_midi,
+            )
+
+        elif state == "ear_answered":
+            process_midi()
+
+            # Draw staff background
+            if staff_img:
+                screen.blit(staff_img, (0, 0))
+
+            # Show the correct answer on staff
+            clef = ear_challenge["clef"] if ear_challenge else "G"
+            draw_chord(screen, ear_challenge["notes"], "half", clef)
+            draw_chord(screen, ear_player_hits, "whole", clef)
+            draw_chord(
+                screen,
+                _display_notes_without_accidentals(ear_player_misses),
+                "x", clef,
+            )
+
+            draw_ear_training_overlay(
+                screen, ear_challenge, ear_sub_mode,
+                ear_player_hits, ear_player_misses,
+                ear_score_correct, ear_score_total,
+                current_difficulty, current_octave,
+                show_answer=True,
+                playing_midi=ear_playing_midi,
+            )
+
+            # Auto-advance after a brief pause
+            if not paused:
+                if time_of_chord_display is None:
+                    time_of_chord_display = time.time()
+                elif time.time() > time_of_chord_display + 1.5:
+                    time_of_chord_display = None
+                    state = "ear_new_challenge"
         
 
         elif state == "show_chord":
@@ -582,6 +807,8 @@ def main():
         clock.tick(FPS)
     
     # Cleanup
+    if ear_mode:
+        close_midi_output()
     pygame.quit()
 
 

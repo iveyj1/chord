@@ -33,6 +33,32 @@
 
 ## Future Plans
 
+### Ear Training Phases (In Progress)
+
+**Phase 1: Single Note Ear Training** ✅
+- `ear_training.py` module: challenge generation + MIDI output playback
+- `--ear [note|interval|chord]` CLI flag
+- Ear training state machine: `ear_new_challenge` → `ear_listen` → `ear_answered`
+- Grand staff display of player attempts and answer reveal
+- Score tracking (correct/total)
+- Difficulty 1-4 controlling note range (single octave → full clef)
+- M key cycles sub-mode, R for new challenge, SPACE replays
+
+**Phase 2: Interval Ear Training** (ready for device testing)
+- Intervals m2 through M9 generated and played sequentially via MIDI
+- Interval pool scales with difficulty level
+- Already integrated — use `--ear interval`
+
+**Phase 3: Chord Ear Training** (ready for device testing)
+- Major/minor triads at low difficulty; dom7/min7/dim/aug at higher
+- Chords played simultaneously via MIDI
+- Already integrated — use `--ear chord`
+
+**Phase 4: Scoring & Difficulty Polish** (planned)
+- Visual streak indicator
+- Difficulty auto-progression based on accuracy
+- Expand range beyond single octave based on performance
+
 ### Phase 4: Chord Generation
 - Difficulty levels:
   1. Single notes (white keys)

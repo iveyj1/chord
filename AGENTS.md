@@ -54,6 +54,11 @@ python playback.py
 
 # Sequence mode (3 bars x 4 chords)
 python playback.py --sequence
+
+# Ear training mode
+python playback.py --ear           # single notes
+python playback.py --ear interval  # intervals (m2-M9)
+python playback.py --ear chord     # chords
 ```
 
 #### Dependencies Installation
@@ -163,11 +168,31 @@ from music import note_to_mnote
 }
 ```
 
+#### Ear Training Challenge Dictionary
+
+```python
+{
+    "type": "note",              # "note", "interval", or "chord"
+    "notes": ["C4", "E4"],       # target notes
+    "clef": "G",                  # display clef
+    "label": "Perfect 5th",       # display label
+    "midi_numbers": [60, 64],    # MIDI numbers for playback
+}
+```
+
 #### State Machine (playback.py)
+
+**Default/Sequence modes:**
 1. `start` - Title screen, wait for SPACE
 2. `show_chord` - Display chord, transition to wait
 3. `wait_for_notes` - Collect input until all notes matched
 4. Loop: show_chord → wait_for_notes → show_chord
+
+**Ear training mode:**
+1. `start` → `ear_new_challenge`
+2. `ear_new_challenge` - Generate challenge, play via MIDI → `ear_listen`
+3. `ear_listen` - Player plays back notes; SPACE replays
+4. `ear_answered` - Show answer; SPACE → `ear_new_challenge`
 
 Sequence mode (`--sequence`) uses the same top-level states but fills a 3-bar line (4 chords/bar) and advances through the full line before waiting for new/repeat input.
 At end-of-line, input choices are gated for ~350ms to avoid stale note/key events.
@@ -179,6 +204,7 @@ At end-of-line, input choices are gated for ~350ms to avoid stale note/key event
 - `constants.py` - Display settings, colors, staff geometry, MIDI config
 - `music.py` - Note/MIDI mappings, staff position calculation, music theory
 - `chords.py` - Chord generation, test sequences, difficulty levels
+- `ear_training.py` - Ear training challenge generation, MIDI output playback
 - `draw.py` - All rendering: chords, ledger lines, overlays
 - `game.py` - Pygame initialization, logical render surface, window presentation scaling
 - `utils.py` - Helper functions: note parsing, MIDI conversion, SVG loading
@@ -208,9 +234,11 @@ At end-of-line, input choices are gated for ~350ms to avoid stale note/key event
 - A-G: Play note in current octave
 - 1-6: Set octave
 - SHIFT+note: Sharp
-- SPACE: Next chord (sequence mode: advance slot while line is active)
+- CTRL+1-4: Set difficulty
+- SPACE: Next chord / replay challenge (ear mode)
 - P: Toggle pause
-- R: Reset sequence
+- R: Reset sequence / new challenge (ear mode)
+- M: Cycle ear training sub-mode (note/interval/chord)
 - ESC: Quit
 
 Sequence mode end-of-line controls:

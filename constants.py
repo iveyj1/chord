@@ -65,7 +65,9 @@ TREBLE_CLEF_BOTTOM_Y = TREBLE_CLEF_REFERENCE_POSITION
 
 TRY_MIDI = True
 MIDI_PORT_NAME = "Roland Digital Piano MIDI 1"
+MIDI_OUT_PORT_NAME = "Roland Digital Piano MIDI 1"
 
 # To find your MIDI port name, run:
 #   import mido
 #   print(mido.get_input_names())
+#   print(mido.get_output_names())

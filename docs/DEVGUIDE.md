@@ -7,8 +7,7 @@
 | `playback.py` | Main entry, game loop, state machine, event handling |
 | `constants.py` | Configuration: display, colors, staff geometry, MIDI |
 | `music.py` | Note/MIDI mappings, staff positions, music theory data |
-| `chords.py` | Test chord sequence, `generate_chord()` |
-| `draw.py` | All rendering: chord, ledger lines, overlays |
+| `chords.py` | Test chord sequence, `generate_chord()` || `ear_training.py` | Ear training challenge generation and MIDI output playback || `draw.py` | All rendering: chord, ledger lines, overlays |
 | `game.py` | Pygame init, global screen/clock/font/staff_img |
 | `utils.py` | Helpers: note parsing, MIDI conversion, SVG loading |
 
@@ -42,10 +41,19 @@
 ```
 
 ## State Machine (playback.py)
-1. `start` - Show title, wait for SPACE
+
+**Default/Sequence modes:**
+1. `start` - Show title, wait for key
 2. `show_chord` - Render chord, transition immediately to wait
 3. `wait_for_notes` - Collect input until all notes matched
 4. Loop: show_chord → wait_for_notes → show_chord
+
+**Ear training mode** (`--ear [note|interval|chord]`):
+1. `start` - Show title, wait for key
+2. `ear_new_challenge` - Generate challenge, play via MIDI output, → ear_listen
+3. `ear_listen` - Player plays notes; SPACE replays challenge; score on match
+4. `ear_answered` - Show answer on staff; SPACE → ear_new_challenge
+5. Loop: ear_new_challenge → ear_listen → ear_answered → ear_new_challenge
 
 ## Key Functions
 
@@ -61,9 +69,15 @@
 - `generate_chord(clef)` → next chord dict from test sequence
 - `reset_chord_sequence()` → restart from beginning
 
+### ear_training.py
+- `generate_challenge(mode, difficulty)` → challenge dict
+- `play_challenge(challenge)` → plays notes via MIDI output
+- `open_midi_output()` / `close_midi_output()` → MIDI output port management
+
 ### draw.py
 - `draw_chord(screen, chord_dict)` → render notes on staff
 - `draw_info_overlay(screen, state_info)` → debug display
+- `draw_ear_training_overlay(screen, ...)` → ear training mode HUD
 - `draw_start_screen(screen)` → title screen
 
 ## Configuration (constants.py)
@@ -79,7 +93,8 @@
 - Ledger lines drawn for notes outside range
 
 ### MIDI
-- `MIDI_PORT_NAME`: device name to connect
+- `MIDI_PORT_NAME`: input device name to connect
+- `MIDI_OUT_PORT_NAME`: output device name for ear training playback
 - `TRY_MIDI`: set False to disable MIDI, keyboard-only
 
 ## Controls
@@ -88,16 +103,24 @@
 | A-G | Play note in current octave |
 | 1-6 | Set octave |
 | SHIFT+note | Sharp |
-| SPACE | Next chord |
+| SPACE | Next chord / replay (ear mode) |
 | P | Toggle pause/auto-advance |
-| R | Reset sequence |
+| R | Reset / new challenge |
+| M | Cycle ear sub-mode (note/interval/chord) |
+| CTRL+1-6 | Set difficulty |
 | ESC | Quit |
 
 ## Running
+
 ```bash
-cd /home/user/dev/playback
+cd /home/user/dev/chord
 source .venv/bin/activate
 python playback.py
+
+# Ear training mode
+python playback.py --ear           # single notes
+python playback.py --ear interval   # intervals
+python playback.py --ear chord      # chords
 ```
 
 ## Dependencies
