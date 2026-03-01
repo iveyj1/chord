@@ -615,8 +615,11 @@ def main():
             # Check simultaneous match: all target notes held, no extras
             if not ear_show_answer and _ear_check_simultaneous():
                 ear_show_answer = True
-                ear_advance_time = time.time()
                 print(f"✓ Ear: {ear_challenge['label']}  (score {ear_score})")
+
+            # Start advance timer once matched notes are released
+            if ear_show_answer and ear_advance_time is None and not _has_active_input():
+                ear_advance_time = time.time()
 
             # Auto-advance after delay
             if ear_advance_time is not None and time.time() >= ear_advance_time + EAR_ADVANCE_DELAY:
