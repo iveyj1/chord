@@ -79,9 +79,12 @@ ear_challenge = None
 ear_player_hits = set()
 ear_player_misses = set()
 ear_show_answer = False
-ear_score_correct = 0
-ear_score_total = 0
+ear_score = 0               # point-based: +20 per correct note, -5 per wrong
 ear_playing_midi = False    # True while MIDI playback thread is active
+ear_advance_time = None     # time.time() when auto-advance was queued
+EAR_ADVANCE_DELAY = 0.10    # seconds to wait before auto-advancing
+EAR_CORRECT_POINTS = 20
+EAR_WRONG_POINTS = -5
 
 # Sequence mode settings/state
 SEQUENCE_BARS = 3
@@ -307,14 +310,6 @@ def handle_keydown(event):
                 pressed_keyboard_notes[key] = simulated_note
                 _mark_input_pressed()
                 _ear_process_note(simulated_note)
-                if _check_ear_complete():
-                    return "ear_answered"
-        return None
-
-    if state == "ear_answered":
-        # Any key advances to next challenge
-        if key == pygame.K_SPACE:
-            return "ear_new_challenge"
         return None
 
     if state == "wait_for_notes":
@@ -388,6 +383,7 @@ def _play_challenge_async(challenge: dict):
 def _new_ear_challenge():
     """Generate and play a new ear training challenge."""
     global ear_challenge, ear_player_hits, ear_player_misses, ear_show_answer
+    global ear_advance_time
     global current_notes, current_clef
 
     ear_challenge = generate_challenge(
@@ -397,40 +393,49 @@ def _new_ear_challenge():
     ear_player_hits = set()
     ear_player_misses = set()
     ear_show_answer = False
+    ear_advance_time = None
     current_notes = ear_challenge["notes"]
     current_clef = ear_challenge["clef"]
     _play_challenge_async(ear_challenge)
 
 
-def _check_ear_complete() -> bool:
-    """Check if ear training challenge is fully matched."""
+def _ear_check_simultaneous() -> bool:
+    """Check if all target notes are currently held with no wrong notes.
+
+    Uses active_midi_notes (physical keyboard) and pressed_keyboard_notes
+    (computer keyboard simulation) to determine what's currently pressed.
+    Returns True when the set of currently held notes exactly covers
+    (or supersets) the target notes with no extra notes.
+    """
     if ear_challenge is None:
         return False
     target = set(ear_challenge["notes"])
-    return ear_player_hits.issuperset(target)
+
+    # Build set of currently held note names
+    held = set()
+    for midi_num in active_midi_notes:
+        held.add(get_note_from_midi(midi_num, current_notes))
+    for note_name in pressed_keyboard_notes.values():
+        held.add(note_name)
+
+    # All target notes present and nothing extra
+    return held.issuperset(target) and held.issubset(target)
 
 
 def _ear_process_note(note: str):
     """Score a note against the current ear challenge."""
-    global ear_player_hits, ear_player_misses, ear_score_correct, ear_score_total
-    global ear_show_answer
+    global ear_player_hits, ear_player_misses, ear_score
+    global ear_show_answer, ear_advance_time
 
     if ear_challenge is None or ear_show_answer:
         return
 
-    ear_player_misses.clear()  # clear previous misses on new input
-
     if note in ear_challenge["notes"]:
         ear_player_hits.add(note)
+        ear_score += EAR_CORRECT_POINTS
     else:
         ear_player_misses.add(note)
-
-    if _check_ear_complete() and not ear_show_answer:
-        ear_show_answer = True
-        if not ear_player_misses:
-            ear_score_correct += 1
-            print(f"✓ Ear: {ear_challenge['label']}")
-        ear_score_total += 1
+        ear_score -= abs(EAR_WRONG_POINTS)
 
 
 def process_midi():
@@ -458,6 +463,7 @@ def process_midi():
         if ear_mode and state == "ear_listen":
             note = get_note_from_midi(msg.note, current_notes)
             _ear_process_note(note)
+            # Don't continue; let active_midi_notes tracking happen above
             continue
 
         if state != "wait_for_notes":
@@ -563,8 +569,6 @@ def main():
                     running = False
                 elif new_state == "ear_new_challenge":
                     state = "ear_new_challenge"
-                elif new_state == "ear_answered":
-                    state = "ear_answered"
                 elif new_state == "queue_sequence_advance":
                     if sequence_mode and state == "wait_for_notes" and not is_sequence_line_complete():
                         _queue_advance("sequence_advance")
@@ -607,8 +611,16 @@ def main():
 
         elif state == "ear_listen":
             process_midi()
-            if _check_ear_complete():
-                state = "ear_answered"
+
+            # Check simultaneous match: all target notes held, no extras
+            if not ear_show_answer and _ear_check_simultaneous():
+                ear_show_answer = True
+                ear_advance_time = time.time()
+                print(f"✓ Ear: {ear_challenge['label']}  (score {ear_score})")
+
+            # Auto-advance after delay
+            if ear_advance_time is not None and time.time() >= ear_advance_time + EAR_ADVANCE_DELAY:
+                state = "ear_new_challenge"
 
             # Draw staff background
             if staff_img:
@@ -616,6 +628,9 @@ def main():
 
             # Draw player's note attempts (hits green, misses red)
             clef = ear_challenge["clef"] if ear_challenge else "G"
+            if ear_show_answer:
+                # Show the target notes once matched
+                draw_chord(screen, ear_challenge["notes"], "half", clef)
             draw_chord(screen, ear_player_hits, "whole", clef)
             draw_chord(
                 screen,
@@ -626,45 +641,11 @@ def main():
             draw_ear_training_overlay(
                 screen, ear_challenge, ear_sub_mode,
                 ear_player_hits, ear_player_misses,
-                ear_score_correct, ear_score_total,
+                ear_score,
                 current_difficulty, current_octave,
-                show_answer=False,
+                show_answer=ear_show_answer,
                 playing_midi=ear_playing_midi,
             )
-
-        elif state == "ear_answered":
-            process_midi()
-
-            # Draw staff background
-            if staff_img:
-                screen.blit(staff_img, (0, 0))
-
-            # Show the correct answer on staff
-            clef = ear_challenge["clef"] if ear_challenge else "G"
-            draw_chord(screen, ear_challenge["notes"], "half", clef)
-            draw_chord(screen, ear_player_hits, "whole", clef)
-            draw_chord(
-                screen,
-                _display_notes_without_accidentals(ear_player_misses),
-                "x", clef,
-            )
-
-            draw_ear_training_overlay(
-                screen, ear_challenge, ear_sub_mode,
-                ear_player_hits, ear_player_misses,
-                ear_score_correct, ear_score_total,
-                current_difficulty, current_octave,
-                show_answer=True,
-                playing_midi=ear_playing_midi,
-            )
-
-            # Auto-advance after a brief pause
-            if not paused:
-                if time_of_chord_display is None:
-                    time_of_chord_display = time.time()
-                elif time.time() > time_of_chord_display + 1.5:
-                    time_of_chord_display = None
-                    state = "ear_new_challenge"
         
 
         elif state == "show_chord":

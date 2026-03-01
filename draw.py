@@ -310,7 +310,7 @@ def draw_start_screen(screen, font):
 
 def draw_ear_training_overlay(screen, challenge, sub_mode,
                               player_hits, player_misses,
-                              score_correct, score_total,
+                              score,
                               difficulty, octave,
                               show_answer=False,
                               playing_midi=False):
@@ -322,8 +322,7 @@ def draw_ear_training_overlay(screen, challenge, sub_mode,
         sub_mode: "note", "interval", or "chord".
         player_hits: Set of correctly matched notes.
         player_misses: Set of incorrect notes.
-        score_correct: Running correct count.
-        score_total: Running total count.
+        score: Running point total (+20 correct, -5 wrong).
         difficulty: Current difficulty level.
         octave: Current keyboard octave.
         show_answer: If True, reveal the answer label and notes.
@@ -342,12 +341,9 @@ def draw_ear_training_overlay(screen, challenge, sub_mode,
     y += 55
 
     # Score
-    if score_total > 0:
-        pct = int(100 * score_correct / score_total)
-        score_str = f"Score: {score_correct}/{score_total} ({pct}%)"
-    else:
-        score_str = "Score: 0/0"
-    text = info_font.render(score_str, True, BLACK)
+    score_str = f"Score: {score}"
+    score_color = GREEN if score > 0 else RED if score < 0 else BLACK
+    text = info_font.render(score_str, True, score_color)
     screen.blit(text, (20, y))
     y += 35
 
