@@ -425,7 +425,6 @@ def _ear_check_simultaneous() -> bool:
 def _ear_process_note(note: str):
     """Score a note against the current ear challenge."""
     global ear_player_hits, ear_player_misses, ear_score
-    global ear_show_answer, ear_advance_time
 
     if ear_challenge is None or ear_show_answer:
         return
@@ -545,6 +544,7 @@ def main():
     global show_start_reference_chords, sequence_mode, ear_mode, ear_sub_mode
     global user_hit_set, user_miss_set, time_of_chord_display
     global pending_advance_action
+    global ear_show_answer, ear_advance_time
 
     args = parse_args()
     show_start_reference_chords = args.show_start_reference_chords
